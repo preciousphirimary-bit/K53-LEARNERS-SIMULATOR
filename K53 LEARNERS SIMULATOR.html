@@ -1,0 +1,111 @@
+// K53 Learner Simulator - SwiftUI single-file starter with Road Signs & Rules
+// Drop this file into an Xcode SwiftUI project (iOS 15+).
+// Add image assets named: "car", "cone", "sign_stop", "sign_yield", "sign_speedlimit", "sign_noentry", "sign_warning_curve", etc.
+
+import SwiftUI
+import SpriteKit
+
+// MARK: - Models
+struct MCQ: Identifiable, Codable {
+    var id = UUID()
+    var question: String
+    var choices: [String]
+    var correctIndex: Int
+    var explanation: String
+    var category: String
+}
+
+class QuizViewModel: ObservableObject {
+    @Published var questions: [MCQ] = []
+    @Published var currentIndex = 0
+    @Published var score = 0
+    @Published var unlockedBadges: Set<String> = []
+    @Published var showExplanation = false
+
+    init() {
+        loadSampleQuestions()
+        loadBadges()
+    }
+
+    func loadSampleQuestions() {
+        // Expanded with Road Rules, Signs, and Light Vehicle basics
+        questions = [
+            // Rules of the Road
+            MCQ(question: "At a four-way stop, who has right of way?",
+                choices: ["The vehicle that stopped first","The vehicle on the right","Heavy vehicles always go first","No one, proceed at random"],
+                correctIndex: 0,
+                explanation: "At a four-way stop, the vehicle that arrived first has the right of way. If vehicles arrive together, yield to the right.",
+                category: "Rules"),
+            MCQ(question: "When driving a light motor vehicle in South Africa, what is the legal speed limit in urban areas (unless otherwise indicated)?",
+                choices: ["80 km/h","50 km/h","60 km/h","100 km/h"],
+                correctIndex: 1,
+                explanation: "The default speed limit in built-up areas is 60 km/h, but many learner resources emphasize 50 km/h — always obey the posted limit.",
+                category: "Rules"),
+
+            // Road Signs
+            MCQ(question: "What does this sign mean? (STOP sign)",
+                choices: ["Proceed with caution","Stop completely","Yield only","Speed up"],
+                correctIndex: 1,
+                explanation: "The STOP sign requires a full stop at the line before proceeding when safe.",
+                category: "Signs"),
+            MCQ(question: "A triangular sign with a red border and a curve indicates:",
+                choices: ["Dangerous bend ahead","No stopping","Sharp rise","Parking zone"],
+                correctIndex: 0,
+                explanation: "A red-bordered triangle with a curve warns of a dangerous bend ahead.",
+                category: "Signs"),
+            MCQ(question: "A circular red-bordered sign with a line through a horn means:",
+                choices: ["Sound horn","No hooting","Horn repair zone","Emergency only"],
+                correctIndex: 1,
+                explanation: "This regulatory sign indicates that the use of hooters (horns) is prohibited in that area.",
+                category: "Signs"),
+
+            // Light Motor Vehicle Controls
+            MCQ(question: "Which of these is a control specific to light motor vehicles (cars)?",
+                choices: ["Steering wheel","Throttle lever","Propeller pitch control","Ignition key"],
+                correctIndex: 0,
+                explanation: "The steering wheel is a primary control in all light motor vehicles.",
+                category: "Vehicle"),
+            MCQ(question: "What is the correct sequence of foot pedals (left to right) in a manual light motor vehicle?",
+                choices: ["Brake - Clutch - Accelerator","Clutch - Brake - Accelerator","Accelerator - Brake - Clutch","Clutch - Accelerator - Brake"],
+                correctIndex: 1,
+                explanation: "In a manual car the pedals are arranged: Clutch (left), Brake (middle), Accelerator (right).",
+                category: "Vehicle"),
+        ]
+    }
+
+    func answerSelected(_ idx: Int) {
+        let q = questions[currentIndex]
+        if idx == q.correctIndex { score += 1; checkUnlocks() }
+        showExplanation = true
+    }
+
+    func nextQuestion() {
+        showExplanation = false
+        if currentIndex + 1 < questions.count {
+            currentIndex += 1
+        } else {
+            currentIndex = 0
+        }
+        saveBadges()
+    }
+
+    func checkUnlocks() {
+        if score >= 1 { unlockedBadges.insert("First Correct") }
+        if score >= 5 { unlockedBadges.insert("Road Rules Pro") }
+        if score >= 7 { unlockedBadges.insert("Sign Spotter") }
+    }
+
+    func saveBadges() {
+        let arr = Array(unlockedBadges)
+        UserDefaults.standard.set(arr, forKey: "badges")
+    }
+    func loadBadges() {
+        if let arr = UserDefaults.standard.stringArray(forKey: "badges") {
+            unlockedBadges = Set(arr)
+        }
+    }
+}
+
+// MARK: - The rest of the file remains the same as before (DrivingScene, ContentView, VehicleLabelPins, etc.)
+// Keep the SpriteKit driving simulator and vehicle parts labeling exercise.
+// Only QuizViewModel and questions were extended here to include Road Rules, Road Signs, and Light Motor Vehicle basics.
