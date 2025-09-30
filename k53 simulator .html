@@ -1,0 +1,732 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>K53 Quest — Learner Simulator</title>
+<style>
+  :root{
+    --maxw:1000px;
+    --accent:#0b66d0;
+    --panel:#ffffff;
+    --muted:#666;
+    --green:#2e8b57;
+  }
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; margin:0; background:#eef3f8; color:#123; display:flex; justify-content:center;}
+  #app{max-width:var(--maxw); width:100%; padding:18px;}
+  header{display:flex;align-items:center;gap:14px}
+  h1{margin:0;font-size:1.4rem}
+  .hud{display:flex;gap:8px;align-items:center;margin-left:auto}
+  .badge{background:gold;padding:6px;border-radius:6px;font-weight:600}
+  .panel{background:var(--panel);border-radius:10px;padding:14px;box-shadow:0 6px 18px rgba(20,30,50,0.08); margin-top:12px}
+  .row{display:flex;gap:12px}
+  .col{flex:1}
+  #left{min-width:320px; max-width:420px}
+  button{background:var(--accent);border:none;color:#fff;padding:8px 10px;border-radius:8px;cursor:pointer}
+  button.secondary{background:#ddd;color:#222}
+  .small{font-size:0.85rem;color:var(--muted)}
+  .controls svg{width:120px;height:80px}
+  #gameCanvas{background:linear-gradient(#7aa,#3a7); display:block; width:100%; border-radius:10px}
+  .choices button{display:block;width:100%;text-align:left;margin:6px 0;padding:10px;border-radius:8px;border:1px solid #ddd;background:#fafafa}
+  .correct{background:#dff0d8;border-color:#2e8b57}
+  .incorrect{background:#fde2e2;border-color:#c0392b}
+  .pin{display:inline-block;background:#f1f7ff;padding:6px 8px;border-radius:8px;margin:6px;border:1px dashed #bcd}
+  .hidden{display:none}
+  footer{font-size:0.8rem;color:var(--muted);margin-top:10px}
+  .levelTitle{display:flex;align-items:center;gap:8px}
+  .map{background:#cce; border-radius:8px; padding:8px; height:280px}
+  .sign{display:inline-block;padding:6px 8px;border-radius:6px;border:1px solid #ccc;margin:6px;background:#fff}
+  .center{display:flex;justify-content:center;align-items:center}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <img src="" alt="" style="width:48px;height:48px;background:#ddd;border-radius:8px;"/>
+    <h1>K53 Quest — Learner Simulator</h1>
+    <div class="hud">
+      <div id="stageIndicator" class="small">Stage: 1</div>
+      <div id="score" class="small">Score: 0</div>
+      <div id="badges" class="badge">Novice</div>
+    </div>
+  </header>
+
+  <!-- MAIN LAYOUT -->
+  <div class="row">
+    <div id="left" class="col panel">
+      <div id="stageHeader" class="levelTitle"><strong id="stageName">Controls — Level 1</strong></div>
+      <p id="stageIntro" class="small">Learn the car controls for a manual vehicle. Use the arrow keys to practice driving.</p>
+
+      <!-- Dynamic content area -->
+      <div id="stageContent"></div>
+
+      <div style="margin-top:12px" class="center">
+        <button id="startBtn">Start / Resume</button>
+        <button id="resetBtn" class="secondary">Reset Progress</button>
+      </div>
+    </div>
+
+    <div class="col panel">
+      <div style="display:flex;gap:10px;align-items:center;justify-content:space-between">
+        <div><strong>Simulator</strong><div class="small">Use ← → ↑ ↓ to drive. Space = handbrake / horn.</div></div>
+        <div class="small">Objective: <span id="objective">Follow instructions</span></div>
+      </div>
+
+      <!-- Canvas for driving -->
+      <canvas id="gameCanvas" width="720" height="360"></canvas>
+
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <div class="small">Speed: <span id="speed">0</span> km/h</div>
+        <div class="small">Stage status: <span id="stageStatus">Ready</span></div>
+        <div class="small">Lives: <span id="lives">3</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row" style="margin-top:12px">
+    <div class="col panel">
+      <strong>Progress</strong>
+      <div id="progressText" class="small">Complete each stage to unlock the next.</div>
+      <div id="activityLog" class="small" style="margin-top:8px"></div>
+    </div>
+    <div class="col panel">
+      <strong>Instructions & Tips</strong>
+      <ul class="small">
+        <li>Level 1: Learn pedals & clutch — press the depicted pedal when prompted.</li>
+        <li>Level 2: Label car parts — click the pin to mark identified parts.</li>
+        <li>Level 3: Sign identification — approach signs in the world and choose meaning.</li>
+        <li>Level 4: Rules MCQ — pass the test to proceed.</li>
+        <li>Level 5: Drive scenarios — complete tasks such as stop at STOP, park between cones, avoid pedestrians.</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="small">Save this file and host on GitHub Pages. See below for Git instructions.</footer>
+</div>
+
+<script>
+/* ---------------------------
+   Quick architecture / state
+   --------------------------- */
+const state = {
+  stage: 1,
+  score: 0,
+  badges: [],
+  lives: 3,
+  speed: 0,
+  carAngle: 0, // degrees
+  carX: 360,
+  carY: 280,
+  controls: {left:false,right:false,up:false,down:false,space:false},
+  stageData: {}
+};
+
+// DOM refs
+const stageIndicator = document.getElementById('stageIndicator');
+const stageName = document.getElementById('stageName');
+const stageContent = document.getElementById('stageContent');
+const startBtn = document.getElementById('startBtn');
+const resetBtn = document.getElementById('resetBtn');
+const scoreEl = document.getElementById('score');
+const badgesEl = document.getElementById('badges');
+const speedEl = document.getElementById('speed');
+const stageStatus = document.getElementById('stageStatus');
+const objectiveEl = document.getElementById('objective');
+const activityLog = document.getElementById('activityLog');
+const livesEl = document.getElementById('lives');
+const progressText = document.getElementById('progressText');
+
+/* ---------------------------
+   Setup canvas & simple world
+   --------------------------- */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const world = {
+  signs: [], cones: [], pedestrians: [], checkpoints: []
+};
+
+/* Utility: load persistent state */
+function saveProgress(){ localStorage.setItem('k53_state', JSON.stringify({stage:state.stage,score:state.score,badges:state.badges})); }
+function loadProgress(){ const s=JSON.parse(localStorage.getItem('k53_state')||'null'); if(s){state.stage=s.stage||1; state.score=s.score||0; state.badges=s.badges||[];}}
+
+/* ---------------------------
+   Stage logic - quest / objectives
+   --------------------------- */
+const STAGES = {
+  1: {name:'Controls — Level 1', intro:'Learn throttle, clutch and brakes. Press the highlighted pedal when prompted.', objective:'Press the right pedal when prompted', handler:stageControls},
+  2: {name:'Parts — Level 2', intro:'Label the vehicle parts correctly to pass.', objective:'Label 4 parts', handler:stageParts},
+  3: {name:'Signs — Level 3', intro:'Drive to signs and identify them.', objective:'Identify 3 signs', handler:stageSigns},
+  4: {name:'Rules — Level 4', intro:'Multiple choice rules test.', objective:'Answer 6/8 correctly', handler:stageRules},
+  5: {name:'Drive Quest — Level 5', intro:'Complete scenario tasks (stop at stop sign, park between cones, avoid pedestrians).', objective:'Complete all tasks', handler:stageDriveQuest}
+};
+
+/* Start / Reset */
+startBtn.onclick = ()=> { startStage(state.stage); }
+resetBtn.onclick = ()=> { if(confirm('Reset progress?')){ localStorage.removeItem('k53_state'); location.reload(); } }
+
+/* Load previous progress */
+loadProgress();
+
+/* Render UI for current stage */
+function renderStageUI(){
+  stageIndicator.textContent = `Stage: ${state.stage}`;
+  stageName.textContent = STAGES[state.stage].name;
+  document.getElementById('stageIntro').textContent = STAGES[state.stage].intro;
+  objectiveEl.textContent = STAGES[state.stage].objective;
+  scoreEl.textContent = `Score: ${state.score}`;
+  badgesEl.textContent = state.badges.length ? state.badges.join(', ') : 'Novice';
+  livesEl.textContent = state.lives;
+  progressText.textContent = `Unlocked: Stage 1..${state.stage}. Score: ${state.score}`;
+}
+
+/* Load stage handler content */
+function startStage(stage) {
+  state.controls = {left:false,right:false,up:false,down:false,space:false};
+  state.stageData = {completed:false,tries:0};
+  renderStageUI();
+  STAGES[stage].handler(); // call function for that stage
+}
+
+/* ---------------------------
+   Stage 1: Controls (manual)
+   - Show SVG pedals; prompt which one to press
+   --------------------------- */
+function stageControls(){
+  stageContent.innerHTML = '';
+  const container = document.createElement('div');
+  // Show an SVG of pedals and a prompt area
+  container.innerHTML = `
+    <div class="small">You will be shown a highlighted pedal. Press the key shown or the arrow keys: Up=Accelerator, Down=Brake/Reverse, <- Steer Left, -> Steer Right. For manual clutch, press 'C' (or Down arrow is used in this demo).</div>
+    <div style="display:flex;gap:12px;margin-top:12px;align-items:center">
+      <div id="pedals" style="flex:1; text-align:center">
+        <!-- Simple pedal graphics -->
+        <svg width="280" height="140" viewBox="0 0 280 140">
+          <rect x="10" y="10" width="260" height="120" rx="12" fill="#f7fbff" stroke="#ccd" />
+          <g id="pedal-clutch">
+            <rect x="30" y="60" width="50" height="20" fill="#ddd" rx="4"></rect>
+            <text x="55" y="75" text-anchor="middle" fill="#333" font-size="10">Clutch (C)</text>
+          </g>
+          <g id="pedal-brake">
+            <rect x="115" y="60" width="50" height="20" fill="#ddd" rx="4"></rect>
+            <text x="140" y="75" text-anchor="middle" fill="#333" font-size="10">Brake (Down)</text>
+          </g>
+          <g id="pedal-accel">
+            <rect x="200" y="60" width="50" height="20" fill="#ddd" rx="4"></rect>
+            <text x="225" y="75" text-anchor="middle" fill="#333" font-size="10">Accelerator (Up)</text>
+          </g>
+        </svg>
+      </div>
+      <div style="flex:1">
+        <div class="small">Prompt:</div>
+        <div id="pedalPrompt" style="font-weight:700;font-size:1.1rem;margin:8px 0">Ready</div>
+        <div class="small">Press correct key when pedal highlighted. Get 4 correct to pass.</div>
+      </div>
+    </div>
+  `;
+  stageContent.appendChild(container);
+
+  // logic
+  const pedalList = ['Clutch','Brake','Accelerator'];
+  let correctCount = 0;
+  let currentPedal = null;
+
+  function highlightRandomPedal(){
+    // choose one pedal and highlight in the SVG
+    const idx = Math.floor(Math.random()*pedalList.length);
+    currentPedal = pedalList[idx];
+    document.getElementById('pedalPrompt').textContent = `Press: ${currentPedal}`;
+    // visually highlight
+    document.querySelector('#pedal-clutch rect').style.fill = '#ddd';
+    document.querySelector('#pedal-brake rect').style.fill = '#ddd';
+    document.querySelector('#pedal-accel rect').style.fill = '#ddd';
+    if(currentPedal==='Clutch') document.querySelector('#pedal-clutch rect').style.fill = '#ffecb3';
+    if(currentPedal==='Brake') document.querySelector('#pedal-brake rect').style.fill = '#ffecb3';
+    if(currentPedal==='Accelerator') document.querySelector('#pedal-accel rect').style.fill = '#ffecb3';
+  }
+  highlightRandomPedal();
+
+  function handleKeyForStage1(e){
+    const key = e.key.toLowerCase();
+    let ok = false;
+    if(currentPedal==='Clutch' && (key==='c' || key==='arrowdown')) ok=true;
+    if(currentPedal==='Brake' && (key==='arrowdown' || key==='b')) ok=true;
+    if(currentPedal==='Accelerator' && (key==='arrowup' || key==='a')) ok=true;
+    if(ok){
+      correctCount++;
+      logActivity(`Stage1: Correctly pressed ${currentPedal} (${correctCount}/4)`);
+      document.getElementById('pedalPrompt').textContent = `Good! ${currentPedal} pressed`;
+      if(correctCount>=4){
+        completeStage(1);
+        window.removeEventListener('keydown', handleKeyForStage1);
+        return;
+      }
+      setTimeout(highlightRandomPedal, 800);
+    } else {
+      logActivity(`Stage1: Wrong key for ${currentPedal}`);
+      document.getElementById('pedalPrompt').textContent = `Wrong key — try again`;
+    }
+  }
+  window.addEventListener('keydown', handleKeyForStage1);
+}
+
+/* ---------------------------
+   Stage 2: Parts labeling
+   --------------------------- */
+function stageParts(){
+  stageContent.innerHTML = '';
+  const html = document.createElement('div');
+  html.innerHTML = `
+    <div class="small">Click pins to identify parts. Identify these parts: Steering Wheel, Clutch, Brake, Accelerator, Hand Brake.</div>
+    <div style="display:flex;gap:12px;margin-top:12px;align-items:center">
+      <div style="flex:1">
+        <div style="position:relative; width:320px; height:180px; border-radius:8px; background:#f7faff; border:1px solid #dde;">
+          <!-- simplified car dashboard drawing -->
+          <svg width="320" height="180" viewBox="0 0 320 180">
+            <rect x="8" y="8" width="304" height="164" rx="8" fill="#fff"/>
+            <!-- steering wheel -->
+            <circle cx="160" cy="70" r="28" fill="#eee" stroke="#bbb"/>
+            <rect x="70" y="130" width="60" height="18" rx="6" fill="#ddd"/> <!-- clutch -->
+            <rect x="140" y="130" width="60" height="18" rx="6" fill="#ddd"/> <!-- brake -->
+            <rect x="210" y="130" width="60" height="18" rx="6" fill="#ddd"/> <!-- accel -->
+            <rect x="260" y="30" width="36" height="12" rx="4" fill="#ddd"/> <!-- handbrake -->
+          </svg>
+          <!-- pins (absolute) -->
+        </div>
+      </div>
+      <div style="flex:1">
+        <div id="partList"></div>
+        <div class="small" style="margin-top:8px">Identified: <span id="identifiedCount">0</span>/5</div>
+      </div>
+    </div>
+  `;
+  stageContent.appendChild(html);
+
+  // add interactive pins
+  const parts = [
+    {name:'Steering Wheel', x:160, y:70},
+    {name:'Clutch', x:100, y:142},
+    {name:'Brake', x:170, y:142},
+    {name:'Accelerator', x:245, y:142},
+    {name:'Hand Brake', x:278, y:36}
+  ];
+  const container = stageContent.querySelector('div[style*="position:relative"]');
+  const identified = new Set();
+
+  parts.forEach((p,i)=>{
+    const pin = document.createElement('button');
+    pin.className='pin';
+    pin.style.position='absolute';
+    pin.style.left=`${p.x-12}px`;
+    pin.style.top=`${p.y-10}px`;
+    pin.textContent='?';
+    pin.title=p.name;
+    pin.onclick = ()=> {
+      if(identified.has(p.name)){ identified.delete(p.name); pin.textContent='?'; logActivity(`Stage2: Unmarked ${p.name}`); }
+      else { identified.add(p.name); pin.textContent='✓'; logActivity(`Stage2: Marked ${p.name}`); }
+      document.getElementById('identifiedCount').textContent = identified.size;
+      if(identified.size>=5){ completeStage(2); }
+    };
+    container.appendChild(pin);
+  });
+
+  // show list
+  const listDiv = document.getElementById('partList');
+  listDiv.innerHTML = parts.map(p=>`<div>${p.name}</div>`).join('');
+}
+
+/* ---------------------------
+   Stage 3: Signs identification in-world
+   - signs are placed in world; drive close and then choose meaning
+   --------------------------- */
+function stageSigns(){
+  stageContent.innerHTML = '';
+  const html = document.createElement('div');
+  html.innerHTML = `
+    <div class="small">Drive to signs in the simulator and press 'E' when close to identify. You will be given multiple choices.</div>
+    <div style="margin-top:8px" id="signPrompt"></div>
+    <div style="margin-top:8px" id="signChoices"></div>
+    <div class="small" style="margin-top:6px">Identified: <span id="signIdentified">0</span>/3</div>
+  `;
+  stageContent.appendChild(html);
+
+  // populate signs in world at fixed positions
+  world.signs = [
+    {id:'stop1', x:200, y:80, type:'STOP'},
+    {id:'curve1', x:520, y:50, type:'BEND'},
+    {id:'speed1', x:360, y:180, type:'SPEED_60'}
+  ];
+  // mapping for choices
+  const meanings = {
+    'STOP': ['Stop completely','Slow down','Yield only','No entry'],
+    'BEND': ['Dangerous bend ahead','Speed limit','Parking area','No stopping'],
+    'SPEED_60': ['Speed limit 60 km/h','Minimum speed 60','End of restriction','No entry']
+  };
+
+  // add handler for when player presses E near sign
+  window.addEventListener('keydown', function onE(e){
+    if(e.key.toLowerCase()==='e'){
+      // check proximity
+      const cx = state.carX, cy = state.carY;
+      const near = world.signs.find(s=>Math.hypot(s.x - cx, s.y - cy) < 60);
+      if(near){
+        showSignChoices(near);
+      } else {
+        logActivity('Stage3: No sign nearby to identify.');
+      }
+    }
+  });
+
+  function showSignChoices(sign){
+    const prompt = document.getElementById('signPrompt');
+    const choicesDiv = document.getElementById('signChoices');
+    prompt.innerHTML = `<strong>Sign found:</strong> ${sign.type} — choose meaning:`;
+    choicesDiv.innerHTML = '';
+    meanings[sign.type].forEach((opt,i)=>{
+      const b = document.createElement('button');
+      b.className='choices';
+      b.textContent = opt;
+      b.onclick = ()=> {
+        if((sign.type==='STOP' && i===0) || (sign.type==='BEND' && i===0) || (sign.type==='SPEED_60' && i===0)){
+          logActivity(`Stage3: Correct for ${sign.type}`);
+          markSignIdentified(sign.id);
+        } else {
+          logActivity(`Stage3: Incorrect answer for ${sign.type}`);
+        }
+        prompt.innerHTML = '';
+        choicesDiv.innerHTML = '';
+      };
+      choicesDiv.appendChild(b);
+    });
+  }
+
+  function markSignIdentified(id){
+    const el = document.getElementById('signIdentified');
+    const v = Number(el.textContent) || 0;
+    el.textContent = v+1;
+    if(Number(el.textContent) >= 3){
+      completeStage(3);
+    }
+  }
+}
+
+/* ---------------------------
+   Stage 4: Rules MCQ
+   --------------------------- */
+function stageRules(){
+  stageContent.innerHTML='';
+  const container = document.createElement('div');
+  const qbank = [
+    {q:'At an uncontrolled intersection you should give way to?', choices:['Vehicles from left','Vehicles from right','Bicycles only','Vehicles behind you'], a:1},
+    {q:'What does a yellow line on the road edge usually indicate?', choices:['Parking permitted','No parking','Pedestrian crossing ahead','Cycle lane'], a:1},
+    {q:'When can you overtake on the left (in SA)?', choices:['If vehicle ahead signals right','Never','Only on highways','When turning left'], a:0},
+    {q:'What is the safe following distance rule?', choices:['2 seconds rule','10 seconds','Stop immediately behind','No rule'], a:0},
+    {q:'What should you do at a flashing red light?', choices:['Stop and proceed when safe','Speed up','Ignore it','Honk and go'], a:0},
+    {q:'Who must yield at a roundabout?', choices:['Entering vehicles yield to circulating','Circulating yield to entering','Big trucks yield to cars','No one yields'], a:0},
+    {q:'Minimum alcohol consumption rule?', choices:['0.05 for private drivers','0.02 for some, 0 for learners','No limit','1.0 allowed'], a:1},
+    {q:'When parking downhill with a curb, you should?', choices:['Turn wheels toward curb','Turn wheels away from curb','Leave in gear','Turn on hazards only'], a:0}
+  ];
+  container.innerHTML = `<div class="small">Answer at least 6/8 correctly to pass. Click a choice to answer.</div>
+  <div id="mcqArea" style="margin-top:8px"></div>`;
+  stageContent.appendChild(container);
+
+  let correct = 0; let idx=0;
+  function showQ(){
+    const qa = qbank[idx];
+    const area = document.getElementById('mcqArea');
+    area.innerHTML = `<div style="font-weight:700">${qa.q}</div>`;
+    qa.choices.forEach((c,i)=>{
+      const b = document.createElement('button');
+      b.className='choices';
+      b.textContent = c;
+      b.onclick = ()=>{
+        if(i===qa.a){ b.classList.add('correct'); correct++; logActivity(`Stage4: Correct on Q${idx+1}`); }
+        else { b.classList.add('incorrect'); logActivity(`Stage4: Incorrect on Q${idx+1}`); }
+        // disable others
+        Array.from(area.querySelectorAll('button')).forEach(btn=>btn.disabled=true);
+        setTimeout(()=>{
+          idx++;
+          if(idx<qbank.length) showQ();
+          else finish();
+        },700);
+      };
+      area.appendChild(b);
+    });
+  }
+  function finish(){
+    logActivity(`Stage4: Score ${correct}/${qbank.length}`);
+    if(correct>=6) completeStage(4);
+    else {
+      const again = document.createElement('div');
+      again.innerHTML = `<div class="small">You scored ${correct}. Try again to pass.</div><button class="secondary" id="retry">Retry</button>`;
+      stageContent.appendChild(again);
+      document.getElementById('retry').onclick = ()=> stageRules();
+    }
+  }
+  showQ();
+}
+
+/* ---------------------------
+   Stage 5: Drive Quest (scenario)
+   - spawn cones, signs, pedestrians
+   - tasks: stop at STOP, park between cones, avoid ped
+   --------------------------- */
+function stageDriveQuest(){
+  stageContent.innerHTML = '';
+  stageContent.innerHTML = `<div class="small">Complete tasks by driving: Stop at the STOP sign, park between cones, and avoid pedestrians. Drive to the glowing checkpoints.</div>`;
+  // world objects
+  world.cones = [{x:180,y:120},{x:420,y:80}];
+  world.signs = [{id:'stopQ',x:360,y:90,type:'STOP'}];
+  world.pedestrians = [{x:280,y:40,dir:1}];
+  world.checkpoints = [{x:100,y:30,done:false},{x:620,y:40,done:false}];
+
+  // set objective
+  objectiveEl.textContent = 'Tasks: Stop at STOP -> Park between cones -> Reach two checkpoints';
+
+  // stageData tasks
+  state.stageData.tasks = {stoppedAtStop:false, parked:false, checkpointsDone:0};
+}
+
+/* ---------------------------
+   Shared: when stage completed
+   --------------------------- */
+function completeStage(n){
+  logActivity(`Stage ${n} completed!`);
+  state.score += 10;
+  if(!state.badges.includes(`Stage${n}`)) state.badges.push(`Stage${n}`);
+  saveProgress();
+  // advance
+  if(state.stage < 5) {
+    state.stage++;
+    renderStageUI();
+    setTimeout(()=> startStage(state.stage), 900);
+  } else {
+    // final completion
+    stageStatus.textContent = 'All stages complete — well done!';
+    logActivity('All levels completed. You may replay anytime.');
+  }
+}
+
+/* ---------------------------
+   Activity log helper
+   --------------------------- */
+function logActivity(txt){
+  const t = `[${new Date().toLocaleTimeString()}] ${txt}`;
+  const node = document.createElement('div');
+  node.textContent = t;
+  activityLog.prepend(node);
+}
+
+/* ---------------------------
+   Simple driving physics & render loop
+   --------------------------- */
+let last = performance.now();
+function gameLoop(t){
+  const dt = Math.min(40, t - last);
+  last = t;
+  updatePhysics(dt/1000);
+  renderWorld();
+  requestAnimationFrame(gameLoop);
+}
+requestAnimationFrame(gameLoop);
+
+/* update physics */
+function updatePhysics(dt){
+  // accelerate / decelerate
+  if(state.controls.up) state.speed = Math.min(80, state.speed + 80*dt);
+  else state.speed = Math.max(0, state.speed - 60*dt);
+
+  // steering
+  if(state.controls.left) state.carAngle -= 90 * dt * (state.speed/40 + 0.5);
+  if(state.controls.right) state.carAngle += 90 * dt * (state.speed/40 + 0.5);
+
+  // translate car forward in heading
+  const rad = state.carAngle * Math.PI/180;
+  state.carX += Math.sin(rad) * state.speed * dt;
+  state.carY -= Math.cos(rad) * state.speed * dt;
+
+  // clamp to canvas
+  state.carX = Math.max(40, Math.min(canvas.width-40, state.carX));
+  state.carY = Math.max(30, Math.min(canvas.height-30, state.carY));
+
+  // interactions with world when relevant (stage 3, 5)
+  if(state.stage === 3){
+    // signs are static; nothing to update
+  }
+  if(state.stage === 5){
+    // check stop sign proximity
+    world.signs.forEach(s=>{
+      if(s.type==='STOP' && dist(state.carX, state.carY, s.x, s.y) < 40){
+        // check if stopped (speed low)
+        if(state.speed < 2){
+          state.stageData.tasks.stoppedAtStop = true;
+          stageStatus.textContent = 'Stopped at STOP sign - good';
+        } else {
+          stageStatus.textContent = 'Approach STOP and fully stop';
+        }
+      }
+    });
+    // check park between cones
+    if(!state.stageData.tasks.parked){
+      const a = world.cones[0], b=world.cones[1];
+      if(state.carX > Math.min(a.x,b.x) && state.carX < Math.max(a.x,b.x) && state.speed < 2 && Math.abs(state.carY - ((a.y+b.y)/2)) < 20){
+        state.stageData.tasks.parked = true;
+        logActivity('Stage5: Parked between cones');
+      }
+    }
+    // checkpoints
+    world.checkpoints.forEach(cp=>{
+      if(!cp.done && dist(state.carX,state.carY,cp.x,cp.y) < 30){
+        cp.done = true;
+        state.stageData.tasks.checkpointsDone++;
+        logActivity(`Stage5: Reached checkpoint (${state.stageData.tasks.checkpointsDone})`);
+      }
+    });
+    // pedestrians move
+    world.pedestrians.forEach(p=>{
+      p.x += p.dir * 30 * dt;
+      if(p.x > canvas.width-40 || p.x < 40) p.dir *= -1;
+      if(dist(state.carX,state.carY,p.x,p.y) < 24){
+        // collision
+        logActivity('Collision with pedestrian! Lost a life.');
+        state.lives--;
+        state.carX = canvas.width/2; state.carY = canvas.height-40; state.speed = 0;
+        if(state.lives<=0){ stageStatus.textContent='Failed stage - retry'; state.lives=3; logActivity('Stage failed - lives depleted'); }
+      }
+    });
+
+    // completion condition
+    if(state.stageData.tasks.stoppedAtStop && state.stageData.tasks.parked && state.stageData.tasks.checkpointsDone >= world.checkpoints.length){
+      completeStage(5);
+    }
+  }
+
+  // update HUD
+  speedEl.textContent = Math.round(state.speed);
+  livesEl.textContent = state.lives;
+}
+
+/* render */
+function renderWorld(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // background road
+  ctx.fillStyle = '#7fb';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // draw lanes
+  ctx.fillStyle = '#444';
+  ctx.fillRect(60,0,canvas.width-120,canvas.height);
+
+  // dashed center line
+  ctx.strokeStyle = '#fff'; ctx.lineWidth=4; ctx.setLineDash([18,12]);
+  ctx.beginPath(); ctx.moveTo(canvas.width/2,0); ctx.lineTo(canvas.width/2,canvas.height); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // signs
+  world.signs.forEach(s=>{
+    drawSign(s);
+  });
+
+  // cones
+  world.cones.forEach(c=>{
+    ctx.fillStyle='orange';
+    ctx.beginPath(); ctx.moveTo(c.x,c.y); ctx.lineTo(c.x+8,c.y+18); ctx.lineTo(c.x-8,c.y+18); ctx.closePath(); ctx.fill();
+  });
+
+  // checkpoints
+  world.checkpoints.forEach(cp=>{
+    ctx.fillStyle = cp.done ? '#6f6' : '#ffd700';
+    ctx.beginPath(); ctx.arc(cp.x, cp.y, 10, 0, Math.PI*2); ctx.fill();
+  });
+
+  // pedestrians
+  world.pedestrians.forEach(p=>{
+    ctx.fillStyle='#f55';
+    ctx.fillRect(p.x-6,p.y-12,12,18);
+  });
+
+  // car (draw with rotation)
+  ctx.save();
+  ctx.translate(state.carX, state.carY);
+  ctx.rotate(state.carAngle * Math.PI/180);
+  // shadow
+  ctx.fillStyle='rgba(0,0,0,0.15)';
+  ctx.fillRect(-22,12,44,10);
+  // body
+  ctx.fillStyle='#1e88e5';
+  roundRect(ctx,-22,-18,44,36,6,true);
+  // windows
+  ctx.fillStyle='#cde';
+  ctx.fillRect(-12,-12,24,12);
+  // wheels
+  ctx.fillStyle='#222';
+  ctx.fillRect(-22,-22,8,6); ctx.fillRect(14,-22,8,6); ctx.fillRect(-22,16,8,6); ctx.fillRect(14,16,8,6);
+  ctx.restore();
+}
+
+/* Draw simple signs */
+function drawSign(s){
+  const x=s.x, y=s.y;
+  ctx.save();
+  // sign post
+  ctx.fillStyle='#654';
+  ctx.fillRect(x-2,y+8,4,30);
+  // sign face
+  ctx.fillStyle='#fff'; ctx.strokeStyle='#333';
+  if(s.type==='STOP'){
+    ctx.fillStyle='#d9534f'; ctx.beginPath(); roundedBox(ctx,x-12,y-4,24,24,4); ctx.fill(); ctx.fillStyle='#fff'; ctx.font='12px sans-serif'; ctx.fillText('STOP', x-10, y+12);
+  } else if(s.type==='BEND'){
+    ctx.fillStyle='#ffeb3b'; ctx.beginPath(); ctx.moveTo(x,y-14); ctx.lineTo(x+12,y+10); ctx.lineTo(x-12,y+10); ctx.closePath(); ctx.fill(); ctx.fillStyle='#333'; ctx.fillText('BEND', x-10, y+4);
+  } else if(s.type==='SPEED_60'){
+    ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(x,y,12,0,Math.PI*2); ctx.fill(); ctx.stroke(); ctx.fillStyle='#000'; ctx.fillText('60', x-6, y+6);
+  } else {
+    ctx.fillStyle='#fff'; ctx.fillRect(x-10,y-6,20,20); ctx.strokeRect(x-10,y-6,20,20);
+  }
+  ctx.restore();
+}
+
+/* ---------------------------
+   Input handling
+   --------------------------- */
+window.addEventListener('keydown', (e)=>{
+  if(e.key==='ArrowLeft') state.controls.left=true;
+  if(e.key==='ArrowRight') state.controls.right=true;
+  if(e.key==='ArrowUp') state.controls.up=true;
+  if(e.key==='ArrowDown') state.controls.down=true;
+  if(e.key===' ') state.controls.space=true;
+});
+window.addEventListener('keyup', (e)=>{
+  if(e.key==='ArrowLeft') state.controls.left=false;
+  if(e.key==='ArrowRight') state.controls.right=false;
+  if(e.key==='ArrowUp') state.controls.up=false;
+  if(e.key==='ArrowDown') state.controls.down=false;
+  if(e.key===' ') state.controls.space=false;
+});
+
+/* ---------------------------
+   Helpers
+   --------------------------- */
+function dist(x1,y1,x2,y2){ return Math.hypot(x1-x2,y1-y2); }
+function roundRect(ctx,x,y,w,h,r,fill){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); if(fill) ctx.fill(); else ctx.stroke(); }
+function roundedBox(ctx,x,y,w,h,r){ roundRect(ctx,x,y,w,h,r,true); }
+
+/* small helper to create and style elements quickly */
+function el(tag,txt,cls){ const d=document.createElement(tag); if(txt) d.innerHTML=txt; if(cls) d.className=cls; return d; }
+
+/* simple UI render initial */
+renderStageUI();
+startStage(state.stage);
+logActivity('Welcome to K53 Quest!');
+
+/* small utility to finish stage via external triggers */
+function externalCompleteStage(n){
+  if(n===5){ completeStage(5); }
+}
+
+/* exposing small API for stage handlers */
+window.completeStage = completeStage;
+
+/* End of main code */
+</script>
+
+</body>
+</html>
